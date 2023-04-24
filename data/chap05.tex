@@ -1,10 +1,29 @@
 % !TeX root = ../thuthesis-example.tex
 
-\chapter{Asynchronous Model-parallel Inference}
+\chapter{\Project Runtime}\label{chapter-5}
 
-\section{Placeholder 1}
+\section{Asynchronous tasks-based inference}
+We build \Project on top of FlexFlow~\cite{flexflow,unity}, a distributed DNN framework originally designed for training. We extend FlexFlow to support inference. FlexFlow itself is built on top of Legion~\cite{legion} (Section \ref{legion}), a data-centric parallel programming framework. We reuse FlexFlow's abstractions for deep learning, in particular the Layer, Tensor, ParallelTensor and Operator abstractions. Thanks to these abstractions, we can build the MoE model using a similar API to PyTorch or Tensorflow, and use FlexFlow's compiler to automatically translate it into a parallel computational graph, where each node is an asynchronous task, and each edge is a data dependency. 
 
-\section{Placeholder 2}
+\subsection{Legion}\label{legion}
+Legion is an asynchronous, task-based distributed execution engine. Tasks are the basic units of the Legion parallel computation, their execution is non-preemptible, and they can call any C++ function, including those allocating/de-allocating memory, but they cannot use packages other than Legion to implement parallelism or concurrency. To write a Legion program, the user implements each task as a C++ function (which may call other functions), and defines each task's input/outputs using Legion logical regions. 
+
+Internally, tasks are defined as operations that transform one or more logical regions, and the system automatically schedules and executes these tasks in parallel, based on their dependencies and resource availability. 
+
+In Legion, control flow is handled using a dynamic dependency graph, which represents the dependencies between different tasks and logical regions. As tasks complete, the system automatically updates the graph and schedules new tasks to execute, based on their dependencies. This approach provides a more flexible and expressive way to manage control flow, and can adapt to changes in the system at runtime.
+
+\subsection{Mapping}
+The system provides a programming model that is based on the concept of logical regions, which are abstract data structures that can be mapped to physical memory resources in a way that is transparent to the programmer. The Legion mapping interface is the mechanism through which the logical regions are mapped to physical resources. The interface provides a set of functions that allow the programmer to specify how the logical regions should be mapped, as well as to query the system for information about the mapping. The mapping interface also provides a mechanism for specifying constraints on the mapping. These constraints can be used to specify affinity between the logical region and the physical resources, as well as to specify other properties of the mapping, such as the layout of the physical memory.
+
+Legion allows the programmer to register a custom mapper to make the mapping policy decisions. In our 
+
+\section{Data \& Model parallelism}
+We use a custom parallelization plan for our tasks. We replicate each operator a number of times equal to the maximum number of in-flight batches, meaning that each batch can run the asynchronous task responsible for an operator's computations independently from the other ones, as long as its data is available. 
+We instruct FlexFlow to parallelize the execution of our MoE models as follows. Each operator is replicated once per in-flight batch 
+%Discuss how we do data parallelism for most operator, plus model parallelism for the fused experts
+%Discuss how we could apply additional model parallelism automatically
+
+
 
 \section{Placeholder 3}
 

@@ -18,8 +18,8 @@
   % 标题
   %   可使用“\\”命令手动控制换行
   %
-  title  = {具有模型并行性的异步专家混合推理框架},
-  title* = {A framework for Asynchronous Mixture-of-Experts Inference with Model Parallelism },
+  title  = {中文标题将在这里},
+  title* = {\Project: Asynchronous Mixture-of-Experts Inference with Model Parallelism},
   %
   % 学位
   %   1. 学术型
@@ -71,8 +71,8 @@
   %
   % 副指导教师
   %
-  associate-supervisor  = {TBD, 教授},
-  associate-supervisor* = {Professor TBD},
+  %associate-supervisor  = {TBD, 教授},
+  %associate-supervisor* = {Professor TBD},
   %
   % 联合指导教师
   %
@@ -136,7 +136,46 @@
 
 % 算法
 \usepackage{algorithm}
-\usepackage{algorithmic}
+\usepackage{algorithmicx}
+\usepackage{algpseudocode}
+\usepackage{cancel}
+%\usepackage{markdown}
+\usepackage{tikz}
+\newcommand*\circled[1]{\tikz[baseline=(char.base)]{
+    \node[shape=circle,draw,inner sep=2pt] (char) {#1};}}
+
+\usepackage{listings}
+\definecolor{mGreen}{rgb}{0,0.6,0}
+\definecolor{mGray}{rgb}{0.5,0.5,0.5}
+\definecolor{mPurple}{rgb}{0.58,0,0.82}
+\definecolor{backgroundColour}{rgb}{0.95,0.95,0.92}
+\definecolor{darkred}{rgb}{0.5, 0.0, 0.13}
+\definecolor{carnelian}{rgb}{0.7, 0.11, 0.11}
+
+\lstdefinestyle{CStyle}{
+    % backgroundcolor=\color{backgroundColour},   
+    commentstyle=\color{mGreen},
+    keywordstyle=\color{magenta},
+    emphstyle = \color{blue!60!black}\bfseries,
+    numberstyle=\tiny\color{mGray},
+    stringstyle=\color{mPurple},
+    basicstyle=\ttfamily\small,
+    columns=flexible,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2,
+    language=C,
+}
+
+
+
 
 % 量和单位
 \usepackage{siunitx}
@@ -176,6 +215,8 @@
   \fi
 }
 \makeatother
+
+\newcommand{\Project}{ExpertFlow }
 
 % hyperref 宏包在最后调用
 \usepackage{hyperref}

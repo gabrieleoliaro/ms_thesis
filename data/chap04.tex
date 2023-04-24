@@ -1,10 +1,189 @@
 % !TeX root = ../thuthesis-example.tex
 
-\chapter{Autoregressive transformer inference}
+\chapter{Autoregressive transformer inference}\label{chapter-4}
 
 
 \section{Autoregressive transformer inference}
 
-\section{Incremental decoding}
+A key challenge preventing MoE inference systems from achieving low latency is the autoregressive nature of many generative tasks of interest, such as sentence completion, language modeling or machine translation. In these tasks, we assume that each generated token depends not only on the tokens from the original prompt, but also on the generated tokens preceding it, so we need to generate each token serially, and feed it back to the decoder model to generate the next. Some existing works have tried to push the performance by performing inference in a non-autoregressive fashion, by relaxing the assumption of conditional dependence of tokens on the preceding ones, but these techniques have so far been unable to match the quality of the output of their autoregressive counterparts, without increasing the computational costs.  
 
-\section{Dynamic Batching}
+Unlike these previous approaches, in \Project we employ three key components to support conditionally-dependent token generation while at the same time significantly reducing the overhead of serial generation. The three components are orthogonal and can be independently applied to improve the performance.
+
+\section{Dynamic Batching}\label{dynamic-batching}
+In both training and inference, batching multiple input sequences together is essential to maximize the device utilization, thus optimizing the throughput. Batching, however, can also be a source of inefficiency. First of all, if the requests in a batch do not all have the same length, we have to pad them to the maximum sequence length, resulting in wasted computations. In the inference case, additional challenges are that we may not be able to fill an entire batch with requests, as requests are not all available in advance, and we don't know when they will arrive. This requires more padding, and more wasted computations. Finally, and most importantly, because of the autoregressive nature of many transformers models, inference requires one iteration for each token to be generated. Since the requests in a single batch may have different final lengths, and we need to run the model once for each token to be generated, we will need to run the model on the batch a number of times equal to the maximum number of tokens to be generated, across all requests in the batch. This will require a large amount of computations, since the inference stage for all requests with a lower number of tokens to be generated will have already completed. In addition, the requests that have already completed will have to wait for the straggler request to complete before the result can be returned to the client, resulting in a large latency overhead.
+
+In \Project, we use a dynamic batching design to reap the benefits of batching (increased device utilization), while keeping the overhead caused by the disuniform sequence lengths and arrival times to a minimum. We do that through the following steps:
+\begin{enumerate}
+    \item Merge the sequence and batch dimensions together, effectively treating the tokens from the batch's request as a single sequence. This allows us to store all the tokens in contiguous memory, avoiding the need for padding each request to the maximum sequence length. To keep all tensors of the same size, we will still need to pad the flattened sequence to $batch\_size \cdot max\_seq\_len$, but leaving all the padding in contiguous memory after the tokens. As the padding is no longer fragmented between the requests, we can avoid unnecessary computations by sending the token count to the model's operator, so they can simply skip over the last $token\_embedding\_dim \cdot ((batch\_size \cdot max\_seq\_len) - token\_count)$ entries in the tensor.
+    \item We update the batch at each generative step, instead of waiting for all the requests to be completed. 
+    \item We attach some metadata to each batch, to facilitate steps 1 and 2. This is especially important for operators such as the attention, which needs to know what sequence each tokens belongs to, and at what position it is located. We use the \texttt{BatchConfig} struct in Listing \ref{batchConfigListing}.
+\end{enumerate}
+
+\begin{lstlisting}[language=C++, caption=BatchConfig, breaklines=true, basicstyle=\footnotesize, frame=single, label=batchConfigListing]
+class BatchConfig {
+public:
+  BatchConfig();
+  bool register_new_request(size_t guid,
+                            int initial_length,
+                            int tokens_to_generate);
+  void prepare_next_batch();
+  int update_results(InferenceResult const &ir);
+  void update_num_active_requests_tokens();
+  int num_active_requests() const;
+  int num_active_tokens() const;
+  void print() const;
+  static int const MAX_NUM_REQUESTS = MAX_REQUESTS;
+  static int const MAX_NUM_TOKENS = InferenceResult::MAX_NUM_TOKENS;
+  // static int const MAX_SEQUENCE_LENGTH = MAX_SEQ_LEN;
+  //  These are set by update
+  int num_tokens, num_requests;
+  bool cached_results;
+  int token_start_idx[MAX_NUM_REQUESTS]; // index of first token in a request
+                                         // that should be processed in the
+                                         // current batch/iteration
+  int token_last_available_idx
+      [MAX_NUM_REQUESTS]; // last valid token index in a request. This includes
+                          // both the prompt and generated tokens
+  int num_processing_tokens[MAX_NUM_REQUESTS]; // a request's number of tokens
+                                               // being processed in the current
+                                               // batch/iteration
+  size_t max_sequence_length[MAX_NUM_REQUESTS];
+
+  struct token_idxs {
+    size_t request_index;  // the index within the BatchConfig of the request
+                           // that the token belongs to
+    size_t token_position; // the index indicating the position of each token
+                           // within its request
+  };
+
+  struct SampleIdxs {
+    size_t num_samples;
+    size_t guids[InferenceResult::MAX_NUM_TOKENS]; // the guid of the request
+                                                   // each token belongs to
+    token_idxs token_indexes[InferenceResult::MAX_NUM_TOKENS];
+  };
+
+  SampleIdxs token2ids;
+  size_t request_guid[MAX_NUM_REQUESTS];
+  bool request_completed[MAX_NUM_REQUESTS];
+};
+\end{lstlisting}
+
+\section{Incremental decoding}
+Similarly to other existing transformer systems~\cite{fairseq, orca}, we employ incremental decoding to eliminate the redundant attention computations that would otherwise be needed when generating tokens in a autoregressive fashion. In particular, consider a standard multi-head attention operation, which we may implement according to Algorithm \ref{alg:attn}.
+
+\renewcommand{\algorithmicrequire}{\textbf{Require：}\unskip}
+\renewcommand{\algorithmicensure}{\textbf{Input：}\unskip}
+\renewcommand{\algorithmiccomment}[1]{\hfill$\vartriangleright${\color{blue}{\textit{#1}}}}
+
+\begin{algorithm}[H]
+  \caption{Multi-Head Self-Attention algorithm}
+  \label{alg:attn}
+  \small
+  \begin{algorithmic}[1]
+    \Ensure $x$: input sequence, $W_{qkv}$: Q/K/V projection weights, $W_{o}$: output projection weights, $num\_heads$: number of attention heads,  $seq\_len$: maximum number of tokens in each request, $batch\_size$: number of requests in each batch, $emb\_dim$: embedding dimension
+    \Require shape of $x = [emb\_dim, seq\_len, batch\_size]$
+    \Require shape of $W_{qkv} = [emb\_dim, Q\_proj + K\_proj + V\_proj, num\_heads]$
+    \Require shape of $W_{o} = [V\_proj \times num\_heads, emb\_dim]$
+    \State $QKV\_projs \leftarrow W_{qkv}^Tx$
+    \State $Q \leftarrow QKV\_projs \; [\; : \;, \; : Q\_proj, \; : \;]$  
+        \Comment{Shape : $(num\_heads, Q\_proj, seq\_len, batch\_size)$}
+    \State $K \leftarrow QKV\_projs \; [\; : \;, \; Q\_proj : Q\_proj + K\_proj, \; : \;]$ 
+        \Comment{Shape : $(\dots, K\_proj, \dots)$}
+    \State $V \leftarrow QKV\_projs \; [\; : \;, \; Q\_proj + K\_proj : \;, \; : \;]$ 
+        \Comment{Shape : $(\dots, V\_proj, \dots)$}
+    \State $QK^T \leftarrow einsum("ijkl,ijmn\rightarrow klmni",Q,K)$ 
+        \Comment{Shape : $(seq\_len, batch\_size, seq\_len, batch\_size, num\_heads)$}
+    \State $QK^T \leftarrow CausalMasking(QK^T)$
+        \Comment{Set entries above diagonal to $-\infty$}
+    \State $attn \leftarrow softmax(\frac{QK^T}{\sqrt{K\_proj}})$
+    \State $attn \leftarrow einsum("ijklm,mnkl \rightarrow ijnm", attn, V)$
+        \Comment{Shape : $(seq\_len, batch\_size, V\_proj, num\_heads)$}
+    \State $attn \leftarrow attn.reshape(seq\_len, batch\_size, V\_proj \times num\_heads)$
+    \State $output \leftarrow (attn \times W_{o}).transpose(-1,0,1)$
+        \Comment{Shape : $(emb\_dim, seq\_len, batch\_size)$}
+  \end{algorithmic}
+\end{algorithm}
+
+We can model the cost of using this algorithm to process a request $r$ of initial length $l_i$ and final length (after generating all tokens) $l_f$, by computing the total number of floating point operations (FLOPs) required. Using the naive matrix multiplication algorithm, we will need $2xyz$ FLOPs to multiply together matrix $A\in \mathbb{R}^{x \times y}$ and $B\in \mathbb{R}^{y \times z}$. Therefore, Algorithm 4.1 for a single request, will require, line by line:
+\begin{itemize}
+    \item Line 1: $2 \cdot (num\_heads \cdot (Q\_proj + K\_proj + V\_proj) \cdot emb\_dim ) \cdot \sum_{seq\_len=l_i}^{l_f} seq\_len \cdot \cancelto{1}{batch\_size} $
+    \item Line 5: $2 \cdot num\_heads \cdot K\_proj \cdot \sum_{seq\_len=l_i}^{l_f} (seq\_len \cdot \cancelto{1}{batch\_size})^2 $
+    \item Line 6: $num\_heads \cdot \sum_{seq\_len=l_i}^{l_f} (seq\_len \cdot \cancelto{1}{batch\_size}) \cdot \frac{\sum_{seq\_len=l_i}^{l_f} seq\_len \cdot \cancelto{1}{batch\_size} - 1}{2}$
+    \item Line 7: $num\_heads \cdot \sum_{seq\_len=l_i}^{l_f} (seq\_len \cdot \cancelto{1}{batch\_size})^2$
+    \item Line 8: $2 \cdot num\_heads \cdot \sum_{seq\_len=l_i}^{l_f} (seq\_len \cdot \cancelto{1}{batch\_size})^2 \cdot V\_proj$
+    \item Line 10: $2 \cdot \sum_{seq\_len=l_i}^{l_f} seq\_len \cdot \cancelto{1}{batch\_size} \cdot V\_proj \cdot num\_heads \cdot emb\_dim$ 
+\end{itemize}
+
+In total, we will have a number of FLOPs:
+\begin{align}
+    & 2 h (d_k + d_k + d_v) d_m \cdot \sum_{l} l + \\
+    & 2 h d_k \sum_{l} l^2 + \\
+    & 0.5 h \sum_{l} l \sum_{l} (l-1) + \\
+    & h \sum_{l} l^2 + \\
+    & 2h \sum_{l} l^2 \cdot d_v + \\
+    & 2\sum_{l} l d_v h d_m = \\
+\end{align}
+
+Incremental decoding allows us to reduce the number of computations, by using Algorithm \ref{alg:attn2}, which is a variant of Algorithm \ref{alg:attn}. The reductions in computations come from the fact that, after the first iteration, the algorithm takes as input only the last generated token, instead of all tokens in the sequence. More specifically, if we are processing request $r$, input tensor $x$ will have a sequence length of $l_i$ in the iteration 0, and a sequence length of $1$ across the iterations $[1, l_f - l_i)$. Using Algorithm \ref{alg:attn}, instead, requires us to pass, at every iteration, an input tensor with all tokens generated so far, together with the initial prompt. In other words, the length of the input tokens at iteration $i$ will be $l_i + i$. In total, the number of FLOPs saved will be:
+
+
+The lower number of FLOPs directly translates to increased throughput. The performance improvement, however, will be even more pronounced when it comes to the latency, since each generative step needs to wait until the previous one has completed before being able to start. Algorithm \ref{alg:attn2} also addresses another source of inefficiency from Algorithm \ref{alg:attn}, namely the fact that all requests in a batch need to have the same sequence length. This is easily achievable in the training phase, but in the inference phase, it is much more challenging, and hence we have resorted to dynamic batching, as described in Section \label{dynamic-batching}. 
+\algnewcommand\algorithmicto{\textbf{to}}
+\algrenewtext{For}[3]%
+{\algorithmicfor\ #1 \gets #2 \algorithmicto\ #3 \algorithmicdo}
+\begin{algorithm}[H]
+  \caption{Multi-Head Self-Attention algorithm}
+  \label{alg:attn2}
+  \small
+  \begin{algorithmic}[1]
+    \Ensure $x$: input sequence, $W_{qkv}$: Q/K/V projection weights, $W_{o}$: output projection weights, $K\_cache$ \& $V\_cache$: the K/V projections for the previous tokens in all in-progress requests, $num\_heads$: number of attention heads, $batch\_config$: the \texttt{BatchConfig} object with the batch's metadata
+    \Require shape of $x$ = [emb\_dim, batch\_config.num\_tokens]
+    \Require shape of $W_{qkv}$ = [emb\_dim, Q\_proj + K\_proj + V\_proj, num\_heads]
+    \Require shape of $W_{o}$ = [V\_proj \times num\_heads, emb\_dim]
+    \Require shape of $K\_cache$ = [K\_proj, max\_seq\_len, num\_heads, max\_requests]
+    \Require shape of $V\_cache$ = [V\_proj, max\_seq\_len, num\_heads, max\_requests]
+    \State $QKV\_projs \leftarrow W_{qkv}^Tx$
+    \State Q $\leftarrow$ QKV\_projs [ : , : Q\_proj, : ]
+        \Comment{Shape : (num\_heads, Q\_proj, batch\_config.num\_tokens)}
+    \State K $\leftarrow$ QKV\_projs [ : , Q\_proj : Q\_proj + K\_proj, : ]
+        \Comment{Shape : ($\dots$, K\_proj, $\dots$)}
+    \State V $\leftarrow$ QKV\_projs  [ : , Q\_proj + K\_proj : , : ]
+        \Comment{Shape : ($\dots$, V\_proj, $\dots$)}
+    \State processed\_tokens $\leftarrow 0$
+    \State attn $\leftarrow []$
+    \For{$r$}{$1$}{$batch\_config.num\_requests$}
+        \State $l_r \leftarrow$ current length of request $r$
+        \State $n_r \leftarrow$ number of new tokens from request $r$ in this batch
+        \State Store new $K$ projection in K\_cache[ : , $l_r$ : $l_r + n_r$, : , r ]
+        \State Store new $V$ projection in V\_cache[ : , $l_r$ : $l_r + n_r$, : , r ]
+        \State $QK^T_r \leftarrow$ einsum($"ijk,jli\rightarrow kli"$, Q [ : , : , processed\_tokens : processed\_tokens + $n_r$ ], K\_cache[ : , : $l_r + n_r$ , : , r])
+            \Comment{Shape : ($n_r$, $l_r + n_r$, num\_heads)}
+        \State $QK^T_r \leftarrow CausalMasking(QK^T_r)$
+            \Comment{Set entries above diagonal to $-\infty$}
+        \State $attn_r \leftarrow softmax\left(\frac{QK^T_r}{\sqrt{K\_proj}}\right)$
+        \State $attn_r \leftarrow$ einsum($"ijk,ljk \rightarrow ilk"$, $attn_r$, V\_cache[ : , : $l_r + n_r$ , : , r])
+            \Comment{Shape : ($n_r$, V\_proj, num\_heads)}
+        \State attn $\leftarrow$ concatenate (attn, $attn_r$)
+        \State processed\_tokens $\leftarrow processed\_tokens + n_r$
+    \EndFor
+    \State $attn \leftarrow attn.reshape(batch\_config.num\_tokens, V\_proj \times num\_heads)$
+    \State $output \leftarrow (attn \times W_{o}).transpose(-1,0,1)$
+        \Comment{Shape : $(emb\_dim, batch\_config.num\_tokens)$}
+  \end{algorithmic}
+\end{algorithm}
+
+The number of FLOPs in the new algorithm will be, for a single iteration:
+
+\begin{align}
+    & h \cdot 2 (d_k + d_k + d_v) d_m  n + \\
+    & + \sum_r 2 (l_r + n_r) d_k n_r h + \\
+    & + \sum_r n_r (l_r + n_r) h + 2(l_r + n_r) n_r h + \\
+    & + \sum_r 2 n_r (l_r + n_r) d_v h + \\
+    & + 2 n d_v h d_m = \\
+    & h \cdot 2 (d_k + d_k + d_v) d_m  n + (\sum_r (l_r + n_r) n_r h) \cdot (d_k + 3 + 2d_v) + 2 n d_v h d_m
+\end{align}
+
+\section{Speculative decoding}
+
+While incremental decoding already allows us to greatly reduce the multi-head attention's overhead, the generation of the tokens is still serialized, resulting in high latency compared to running the same type of model in a non-autoregressive mode. To further improve the performance, we use speculative inference, as follows. We load two sizes of the target model, a smaller one, and a larger one, with a number of parameters 10x larger than the smaller one. For each request, we first route the tokens to the small model, which runs in autoregressive fashion. Due to the smaller size, the latency of generation is greatly reduced. When we have reason to believe that the smaller model might be making a wrong prediction, we let the larger model run instead. The larger model will then take as input all the tokens generated so far, and compute the prediction scores for each such tokens. If all of the predictions from the larger models are close enough to the predictions from the small model, the large model will output its prediction for an additional token and then hand back control to the smaller model. On the other hand, if the prediction for one of the generated tokens is too different from the score obtained by the larger model, we replace that token with the one predicted by the larger model and discard all the following tokens. Then, we also hand back control to the smaller model.
