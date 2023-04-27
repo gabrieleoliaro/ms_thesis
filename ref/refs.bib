@@ -1284,7 +1284,7 @@ month = jul,
 
 @misc{modelscope-checkpoint,
 author = {},
-title = {GPT-MoE中文67亿诗歌生成模型 · 模型库},
+title = {GPT-MoE中文67亿诗歌生成模型},
 howpublished = {\url{https://www.modelscope.cn/models/PAI/nlp_gpt3_text-generation_0.35B_MoE-64/summary}},
 month = {},
 year = {},
@@ -1412,4 +1412,72 @@ note = {(Accessed on 04/10/2023)}
     author = {Chiang, Wei-Lin and Li, Zhuohan and Lin, Zi and Sheng, Ying and Wu, Zhanghao and Zhang, Hao and Zheng, Lianmin and Zhuang, Siyuan and Zhuang, Yonghao and Gonzalez, Joseph E. and Stoica, Ion and Xing, Eric P.},
     month = {March},
     year = {2023}
+}
+
+@incollection{blelloch_prefix_1990,
+  added-at = {2009-10-12T12:20:34.000+0200},
+  author = {Blelloch, Guy E},
+  biburl = {https://www.bibsonomy.org/bibtex/2328d1683c317526dc6f597199430756b/cgray},
+  booktitle = {Sythesis of parallel algorithms},
+  interhash = {3c5a1d4bbec71389d748dba848448921},
+  intrahash = {328d1683c317526dc6f597199430756b},
+  keywords = {imported parallel-algorithms},
+  pages = {35---60},
+  publisher = {Morgan Kaufmann Publishers Inc.},
+  timestamp = {2009-10-13T16:37:35.000+0200},
+  title = {Prefix Sums and Their Applications},
+  url = {http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.47.6430},
+  year = 1990
+}
+
+@misc{thrust,
+author = {NVIDIA},
+title = {NVIDIA/thrust: The C++ parallel algorithms library.},
+howpublished = {\url{https://github.com/NVIDIA/thrust}},
+month = {},
+year = {},
+note = {(Accessed on 04/24/2023)}
+}
+
+@article{touvron2023llama,
+  title={LLaMA: Open and Efficient Foundation Language Models},
+  author={Touvron, Hugo and Lavril, Thibaut and Izacard, Gautier and Martinet, Xavier and Lachaux, Marie-Anne and Lacroix, Timoth{\'e}e and Rozi{\`e}re, Baptiste and Goyal, Naman and Hambro, Eric and Azhar, Faisal and Rodriguez, Aurelien and Joulin, Armand and Grave, Edouard and Lample, Guillaume},
+  journal={arXiv preprint arXiv:2302.13971},
+  year={2023}
+}
+
+@inproceedings{fairseq-moe-model,
+    title = "Efficient Large Scale Language Modeling with Mixtures of Experts",
+    author = "Artetxe, Mikel  and
+      Bhosale, Shruti  and
+      Goyal, Naman  and
+      Mihaylov, Todor  and
+      Ott, Myle  and
+      Shleifer, Sam  and
+      Lin, Xi Victoria  and
+      Du, Jingfei  and
+      Iyer, Srinivasan  and
+      Pasunuru, Ramakanth  and
+      Anantharaman, Giridharan  and
+      Li, Xian  and
+      Chen, Shuohui  and
+      Akin, Halil  and
+      Baines, Mandeep  and
+      Martin, Louis  and
+      Zhou, Xing  and
+      Koura, Punit Singh  and
+      O{'}Horo, Brian  and
+      Wang, Jeffrey  and
+      Zettlemoyer, Luke  and
+      Diab, Mona  and
+      Kozareva, Zornitsa  and
+      Stoyanov, Veselin",
+    booktitle = "Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing",
+    month = dec,
+    year = "2022",
+    address = "Abu Dhabi, United Arab Emirates",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2022.emnlp-main.804",
+    pages = "11699--11732",
+    abstract = "Mixture of Experts layers (MoEs) enable efficient scaling of language models through conditional computation. This paper presents a detailed empirical study of how autoregressive MoE language models scale in comparison with dense models in a wide range of settings: in- and out-of-domain language modeling, zero- and few-shot priming, and full-shot fine-tuning. With the exception of fine-tuning, we find MoEs to be substantially more compute efficient. At more modest training budgets, MoEs can match the performance of dense models using {\textasciitilde}4 times less compute. This gap narrows at scale, but our largest MoE model (1.1T parameters) consistently outperforms a compute-equivalent dense model (6.7B parameters). Overall, this performance gap varies greatly across tasks and domains, suggesting that MoE and dense models generalize differently in ways that are worthy of future study. We make our code and models publicly available for research use.",
 }

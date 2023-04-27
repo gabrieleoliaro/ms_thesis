@@ -18,8 +18,8 @@
   % 标题
   %   可使用“\\”命令手动控制换行
   %
-  title  = {中文标题将在这里},
-  title* = {\Project: Asynchronous Mixture-of-Experts Inference with Model Parallelism},
+  title  = {ExpertFlow: 实现混合专家模型的低延迟异步推断},
+  title* = {ExpertFlow: Enabling Low-Latency Asynchronous Inference for Mixture of Expert Models },
   %
   % 学位
   %   1. 学术型
@@ -174,7 +174,27 @@
     language=C,
 }
 
+% algorithm-related custom code
+\definecolor{commentcolor}{gray}{0.5}
+\renewcommand{\algorithmicrequire}{\textbf{Require：}\unskip}
+\renewcommand{\algorithmicensure}{\textbf{Input：}\unskip}
+\renewcommand{\algorithmiccomment}[1]{\hfill$\vartriangleright${\color{commentcolor}{\textit{#1}}}}
 
+
+\algnewcommand\algorithmicto{\textbf{to}}
+\algrenewtext{For}[3]%
+{\algorithmicfor\ #1 \gets #2 \algorithmicto\ #3 \algorithmicdo}
+
+\algblock{ParallelFor}{EndParallelFor}
+% customising the new block
+\algnewcommand\algorithmicparfor{\textbf{parallelfor}}
+\algnewcommand\algorithmicpardo{\textbf{do}}
+\algnewcommand\algorithmicendparfor{\textbf{end\ parallelfor}}
+\algrenewtext{ParallelFor}[1]{\algorithmicparfor\ #1\ \algorithmicpardo}
+\algrenewtext{EndParallelFor}{\algorithmicendparfor}
+%\algnewcommand\algorithmicto{\textbf{to}}
+\algrenewtext{ParallelFor}[3]%
+{\algorithmicparfor\ #1 \gets #2 \algorithmicto\ #3 \algorithmicdo}
 
 
 % 量和单位

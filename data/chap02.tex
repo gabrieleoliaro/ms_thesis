@@ -189,7 +189,7 @@ Unlike TurboTransformers, FasterTransformer does not come with a serving framewo
 Orca~\cite{orca} is a distributed inference system for transformers, employing optimizations such as dynamic batching and iteration-level scheduling to boost the performance of variable-length requests whose arrival times are not known in advance. Unfortunately, the Orca code is closed-source, and the authors are not planning to make it publicly available as it is being used in production by for-profit company FriendliAI, so we cannot compare the performance with our system. 
 
 \subsection{Speculative decoding systems}
-Two speculative decoding systems~\cite{speculative-decoding-berkeley, speculative-decoding-google} have been introduced in recent months. 
+Two speculative decoding systems~\cite{speculative-decoding-berkeley, speculative-decoding-google} have been introduced in recent months.
 
 \section{MoE Serving Systems}\label{chpt2-moe-serving}
 There are several distributed inference systems that are capable of serving MoE models. For example, FasterTransformer mentioned above, together with Fairseq~\cite{fairseq} (with additional support for the Tutel~\cite{tutel} optimizations) and Alpa~\cite{alpa}. These systems however, were designed primarily for training and do not have as many optimizations as DeepSpeed-MoE~\cite{deepspeed-moe} for the MoE inference scenario.

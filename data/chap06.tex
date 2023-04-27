@@ -1,16 +1,11 @@
 % !TeX root = ../thuthesis-example.tex
 
-\chapter{Kernel-level optimizations}\label{chapter-8}
+\chapter{Kernel-level optimizations}\label{chapter-6}
 
 \section{Fused-Experts Operator}
 An essential factor to be able to run a Mixture-of-Experts model without incurring in great performance overhead is to use efficient GPU kernels. In particular, a MoE layer generally requires a fast implementation of a \textit{gating network}, \textit{top-k}, \textit{token dispatch}, \textit{expert prediction}, and \textit{predictions aggregation} kernel. In this section, we illustrate the role of each kernel, and how we implemented each of them in our \textit{fused-experts operator} in order to significantly optimize the performance when compared to the naive version.
 
 \subsection{MoE-layer kernels}
-
-\definecolor{commentcolor}{gray}{0.5}
-\renewcommand{\algorithmicrequire}{\textbf{Require：}\unskip}
-\renewcommand{\algorithmicensure}{\textbf{Input：}\unskip}
-\renewcommand{\algorithmiccomment}[1]{\hfill$\vartriangleright${\color{commentcolor}{\textit{#1}}}}
 
 \begin{algorithm}[H]
   \caption{Naive MoE-layer algorithm}
@@ -57,18 +52,9 @@ Above, we present a naive algorithm (Algorithm \ref{alg:naive-moe}) to implement
 Each of lines 2-6 corresponds to one of the five typical MoE kernels introduced above. The algorithm should help demystifying what each such kernel does, and the dependencies between the kernels. We can implement Algorithm \ref{alg:naive-moe} in CUDA using a cuBLAS GEMM operator for the matrix multiplication steps, cuDNN for the softmax, and a custom CUDA kernel for the remaining steps. We can further implement a single fused kernel using CUDA or CUTLASS. However, the sparsity introduced by the one-hot encoding, together with the sequential nature of the two for loops (which are difficult to parallelize due to the need to consider the expert capacity when assigning tokens to experts) within the \textsc{OneHotEncoding} procedure lead the naive algorithm to suffer from poor performance in practice.
 
 \subsection{\Project fast kernel implementation}
+In \Project, we speed up the implement the \textit{token dispatch}, \textit{expert prediction}, and \textit{predictions aggregation} through the kernels shown below. In particular, Algorithm \ref{alg:moe-sort-tokens} allows us to parallelize the token dispatch operation, without exceeding the expert capacity. The kernel is carefully constructed so that each instruction is fully parallelizable. We take advantage of the Blelloch scan algorithm~\cite{blelloch_prefix_1990} to parallelize the \textit{reduction} and \textit{exclusive scan}, which would otherwise introduce a parallelization bottleneck. Each instruction in Algorithm \ref{alg:moe-sort-tokens} is implemented using the highly optimized NVIDIA Thrust library ~\cite{thrust}, which integrates seamlessly with the other kernels, which are written in CUDA. Thrust allows us to specify the execution policy for each instruction; by specifying the CUDA stream to use for each instruction, we can prevent any synchronization issue, while avoiding expensive operations such as \texttt{cudaDeviceSynchronize()}.
 
-% declaration of the new block
-\algblock{ParallelFor}{EndParallelFor}
-% customising the new block
-\algnewcommand\algorithmicparfor{\textbf{parallelfor}}
-\algnewcommand\algorithmicpardo{\textbf{do}}
-\algnewcommand\algorithmicendparfor{\textbf{end\ parallelfor}}
-\algrenewtext{ParallelFor}[1]{\algorithmicparfor\ #1\ \algorithmicpardo}
-\algrenewtext{EndParallelFor}{\algorithmicendparfor}
-%\algnewcommand\algorithmicto{\textbf{to}}
-\algrenewtext{ParallelFor}[3]%
-{\algorithmicparfor\ #1 \gets #2 \algorithmicto\ #3 \algorithmicdo}
+Algorithm \ref{alg:compute-batched-matmul-indices} illustrates our implementation of the \textsc{ComputeBatchedMatmulIndices} kernel, which takes the results of the \textsc{MoESortTokens} kernel as input, and populates three arrays of pointers that will then be used by the \textsc{BatchedMatmul} step (Algorithm \ref{alg:parallel-moe}, line 9) to compute the expert predictions, and one more array to be used in the final aggregation phase. Compared to the original naive algorithm, our design allows us to save GPU memory by not having to store the large one-hot encoding tensor. In addition, we remove most sparsity from the computations, resulting in better opportunities for speedups, since it is easier to optimize dense kernels. Finally, we perform most of our operations by manipulating the expert assignment indices, instead of the actual token data. This is beneficial because each index only requires one integer to represent, as opposed to the many floats required to represent each token, so we can save a lot of space and time. 
 
 \begin{algorithm}[H]
   \caption{\textsc{MoESortTokens} kernel}
@@ -108,15 +94,31 @@ Each of lines 2-6 corresponds to one of the five typical MoE kernels introduced 
   \label{alg:compute-batched-matmul-indices}
   \small
   \begin{algorithmic}[1]
-    \Ensure $top\_indices$: the indices of the $k$ experts chosen by each token, $expert\_start\_idx$: the index of the first fused expert residing on the current device, $num\_experts\_per\_block$: number of fused experts residing on each device, $C$: expert capacity, $seq\_len$: maximum number of tokens in each request, $batch\_size$: number of requests in each batch
-    \Require shape of $top\_indices = [k, seq\_len \cdot batch\_size]$    
+    \Ensure $sorted\_indices$: the sorted indices of the $k$ experts chosen by each token
+    \Ensure $original\_indices$ an array containing the reverse indices corresponding to the $sorted\_indices$
+    \Ensure $exp\_local\_label\_to\_index$: a lookup table converting an expert label to its index
+    \Ensure $expert\_start\_indexes$: the indices of the first tokens (in order) assigned to each unique expert in the block
+    \Ensure $destination\_start\_indices$: the indices, for each expert, of the first slot in the index arrays belonging to each unique index
+    \Ensure $input$: the tensor containing the input tokens
+    \Ensure $weights$: tensor containing the weights for all the fused experts in the block
+    \Ensure $coefficients$: tensor containing the $top\_values$ from the TopK operator
+    \Ensure $output$: the output tensor
+    \Ensure $num\_valid\_assignments$: the number of tokens who are assigned to experts in the current block
+    \Ensure $lb\_index$: index of first slot in the $sorted\_indices$ tensor to belong to an expert in the block
+    \Ensure $expert\_start\_idx$: the index of the first fused expert residing on the current device
+    \Ensure $data\_dim$: embedding dimension of each token
+    \Ensure $out\_dim$: hidden dimension of each output entry of the MoE layer
+    \Ensure $C$: expert capacity
+    \Ensure $k$: number of experts to which each token is assigned to
+    
+    \vspace{0.5cm}
+    
     \Procedure{ComputeBatchedMatmulIndices}{sorted\_indices, original\_indices, exp\_local\_label\_to\_index, expert\_start\_indexes, destination\_start\_indices, input, weights, coefficients, output, num\_valid\_assignments, lb\_index, experts\_start\_idx, data\_dim, out\_dim, C, k}
-
     \State Allocate a size of $num\_valid\_assignments$ for each of pointer arrays  $token\_idx\_array$, $weight\_idx\_array$, $coefficient\_idx\_array$, and $output\_idx\_array$
-    \State $token\_idx\_array \leftarrow \{0\}$
-    \State $weight\_idx\_array \leftarrow \{0\}$
-    \State $coefficient\_idx\_array \leftarrow \{0\}$
-    \State $output\_idx\_array \leftarrow \{0\}$
+    \State token\_idx\_array $\leftarrow \{0\}$
+    \State weight\_idx\_array $\leftarrow \{0\}$
+    \State coefficient\_idx\_array $\leftarrow \{0\}$
+    \State output\_idx\_array $\leftarrow \{0\}$
         \ParallelFor{i}{0}{num\_valid\_assignments}
             \State global\_expert\_label $\leftarrow$ sorted\_indices[lb\_index + i]
             \State local\_expert\_label $\leftarrow$ global\_expert\_label - experts\_start\_idx
@@ -153,23 +155,74 @@ Each of lines 2-6 corresponds to one of the five typical MoE kernels introduced 
         \Comment{gating network kernel}
     \State top\_values, top\_indices $\leftarrow$ TopK(g)
         \Comment{top-k kernel}
-
-    \State
-    
-    \State
-    
-    %\State z $\leftarrow$ \Call{OneHotEncoding}{top\_indices, k, E, num\_tokens, C}
-        %\Comment{token dispatch kernel}
-    \State predictions $\leftarrow$ x $\times$ z $\times \begin{bmatrix} W_0, \ \dots, \ W_{E-1} \end{bmatrix}^\top$
-        \Comment{expert prediction kernel}
-    \State output $\leftarrow$ dot(top\_values, predictions)
-        \Comment{predictions aggregation kernel}
+    \State num\_experts\_per\_block $\leftarrow$ E / num\_devices
+    \State sorted\_indices, original\_indices, exp\_local\_label\_to\_index, expert\_start\_indexes, destination\_start\_indices, num\_valid\_assignments, lb\_index $\leftarrow$ \Call{MoESortTokens}{top\_indices, expert\_start\_idx, num\_experts\_per\_block, C}
+    \State experts\_start\_idx $\leftarrow device\_rank \cdot num\_experts\_per\_block$
+    \State weights $\leftarrow \begin{bmatrix} W_0, \ \dots, \ W_{E-1} \end{bmatrix}^\top$
+    \State token\_idx\_array, weight\_idx\_array, coefficient\_idx\_array, output\_idx\_array $\leftarrow$ \Call{ComputeBatchedMatmulIndices}{sorted\_indices, original\_indices, exp\_local\_label\_to\_index, expert\_start\_indexes, destination\_start\_indices, x, weights, coefficients, output, num\_valid\_assignments, lb\_index, experts\_start\_idx, emb\_dim, emb\_dim, C, k}
+    \State predictions $\leftarrow$ \textsc{BatchedMatmul} (\textbf{a=}token\_idx\_array, \textbf{b=}weight\_idx\_array, \textbf{coeff=}coefficient\_idx\_array)
+    \State \textsc{AtomicElementwiseAdd} (output\_idx\_array, predictions)
 
   \end{algorithmic}
 \end{algorithm}
 
 
-\section{Incremental MultiHeadAttention Kernel}
+\section{Incremental Multi-Head Attention Kernel}
 
-\section{Placeholder 3}
+Our implementation of the Incremental Multi-head attention kernel closely follows Algorithm \ref{alg:attn2}, and is written in CUDA. We also make use of the cuBLAS and cuDNN libraries for operations such as matrix multiplications and activations, for which highly-optimized kernels available off-the-shelf are often faster than custom-designed ones. After designing algorithm \ref{alg:attn2}, an important aspect we considered during the implementation phase was how to effectively store all the data in memory, in such a way to simplify the access as much as possible. We designed the data layout in a way that minimizes the number of data copies and data movements needed, and we structured each tensor in column-major order, as is customary in CUDA. The layouts of the tensors used in the incremental multi-head attention layer are shown below:
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\linewidth]{figures/input_tensor.png}
+    \caption{\textbf{The input tensor}}
+    \label{fig:mha-input}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{figures/weights.png}
+    \caption{\textbf{The weights tensor}}
+    \label{fig:mha-weights}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{figures/qkv_proj.png}
+    \caption{\textbf{The Q/K/V projections tensor}}
+    \label{fig:mha-qkv-projs}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{figures/kcache_tensor.png}
+    \caption{\textbf{The K-cache tensor}}
+    \label{fig:mha-kcache}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{figures/vcache_tensor.png}
+    \caption{\textbf{The V-cache tensor}}
+    \label{fig:mha-vcache}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{figures/qk_prods.png}
+    \caption{\textbf{The QK-product tensor}}
+    \label{fig:mha-qk-products}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\linewidth]{figures/attn_heads.png}
+    \caption{\textbf{The tensor containing the results for each attention head}}
+    \label{fig:mha-attn-head}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\linewidth]{figures/w_out-contiguous.png}
+    \caption{\textbf{The output weights tensor}}
+    \label{fig:w-out}
+\end{figure}
