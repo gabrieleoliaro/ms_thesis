@@ -5,6 +5,10 @@
 % \begin{comments}[name = {Comments from Thesis Supervisor}]
 % \begin{comments}[name = {Comments from Thesis Supervision Committee}]
 
-  论文提出了……
+混合专家模型是当前自然语言处理领域一个重要模型。本文围绕混合专家模型的推理任务优化开展相关工作，主要的贡献包括：
+  \begin{enumerate}
+      \item 设计了低延迟的MOE推理系统，ExpertFlow，用于提供高效的MOE模型推理服务。该框架支持多GPU以及多节点的推理，并且实现异步模型。
+      \item 在Nvdia平台对ExpertFlow系统进行性能评价，结果表明该系统和FasterTransformer相比，吞吐量高达1.95倍，平均延迟降低13\%。作者开源了相关代码。
+  \end{enumerate}
 
 \end{comments}

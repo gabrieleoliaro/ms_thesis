@@ -92,7 +92,7 @@ The expert capacity is usually tuned through the capacity factor, and allows us 
 
 
 \subsection{GPT-MoE}\label{gpt-moe}
-The GPT model can be easily \textit{MoEfied} by substituting the Feed Forward network in the the decoder with a MoE layer. For example, the sparse models~\cite{fairseq-checkpoint} whose checkpoints are available in the Fairseq repository~\footnote{\url{https://github.com/facebookresearch/fairseq/tree/main/examples/moe_lm}} use 12 (15B-parameters model), 24 (52B- parameters and 207B-parameters models) or 32 (1.1T-parameters model) decoder layers, where every other layer contains a MoE component instead of the regular FFN. In Listing \ref{fairseq-15-moe}, we can see the 15B parameters model, where the six even-numbered decoder layers contain a FFN with two fully-connected layers, and the six odd-numbered decoder layers contain a MoE Layer instead.
+The GPT model can be easily \textit{MoEfied} by substituting the feed forward network in the decoder with a MoE layer. For example, the sparse models~\cite{fairseq-checkpoint} whose checkpoints are available in the Fairseq repository~\footnote{\url{https://github.com/facebookresearch/fairseq/tree/main/examples/moe_lm}} use 12 (15B-parameters model), 24 (52B- parameters and 207B-parameters models) or 32 (1.1T-parameters model) decoder layers, where every other layer contains a MoE component instead of the regular FFN. In Listing \ref{fairseq-15-moe}, we can see the 15B parameters model, where the six even-numbered decoder layers contain a FFN with two fully-connected layers, and the six odd-numbered decoder layers contain a MoE Layer instead.
 
 \begin{lstlisting}[caption=Fairseq’s 15B-parameters MoE model, breaklines=true, basicstyle=\footnotesize, frame=single, label=fairseq-15-moe]
 TransformerLanguageModel(
@@ -161,7 +161,7 @@ TransformerLanguageModel(
 In this section, we introduce existing serving systems for Transformers/GPT (Section \ref{transformer-serving}) and GPT-MoE (Section \ref{chpt2-moe-serving}) models.
 
 \subsection{Transformer serving systems}\label{transformer-serving}
-There is a large number of systems that can serve transformers. In this section, we focus on the systems that are specifically optimized for transformers. These systems are also the ones that have more similar components to \Project.
+There is a large number of systems that can serve transformers. In this section, we focus on the systems that are specifically optimized for transformers. These systems are also the ones that have more similar components to ExpertFlow.
 
 \subsubsection{TurboTransformers}
 TurboTransformer~\cite{turbo_transformers} is an inference system for transformers from Tencent. The system consists of two components (see Figure \ref{fig:turbo-transformers}): a serving framework, and a computational runtime.
@@ -181,18 +181,18 @@ The main limitations of the TurboTransformers system are the lack of support for
 
 
 \subsubsection{FasterTransformer and Triton}
-FasterTransformer~\cite{faster_transformer} is an open-source inference system by NVIDIA supporting multi-GPU execution. As the name suggests, the inference system is specialized for Transformers, and it supports a wide variety of models, including BERT~\cite{bert}, XLNet~\cite{xlnet}, GPT~\cite{gpt1, gpt2, brown_2020}, OPT~\cite{opt}, GPT-MoE, BLOOM~\cite{bloom}, GPT-J~\cite{gpt-j}, Longformer~\cite{longformer}, T5~\cite{t5}, Swin Transformer~\cite{swin-transformer}, and ViT~\cite{vit}. The FasterTransformer's backend is implemented using C++, CUDA and cuBLAS, and several front-ends are available, including C++, TensorFlow and PyTorch. The repository contains an example MoE implementation~\footnote{\url{https://github.com/NVIDIA/FasterTransformer/blob/main/docs/gpt\_guide.md\#gpt-with-moe}}, which we use in our evaluation to compare the performance of \Project with FT. 
+FasterTransformer~\cite{faster_transformer} (FT) is an open-source inference system by NVIDIA supporting multi-GPU execution. As the name suggests, the inference system is specialized for Transformers, and it supports a wide variety of models, including BERT~\cite{bert}, XLNet~\cite{xlnet}, GPT~\cite{gpt1, gpt2, brown_2020}, OPT~\cite{opt}, GPT-MoE, BLOOM~\cite{bloom}, GPT-J~\cite{gpt-j}, Longformer~\cite{longformer}, T5~\cite{t5}, Swin Transformer~\cite{swin-transformer}, and ViT~\cite{vit}. The FasterTransformer's backend is implemented using C++, CUDA and cuBLAS, and several front-ends are available, including C++, TensorFlow and PyTorch. The repository contains an example MoE implementation~\footnote{\url{https://github.com/NVIDIA/FasterTransformer/blob/main/docs/gpt\_guide.md\#gpt-with-moe}}, which we use in our evaluation to compare the performance of ExpertFlow with FT. 
 
-Unlike TurboTransformers, FasterTransformer does not come with a serving framework, but NVIDIA released Triton~\cite{triton}, an open-source inference system that can be coupled with FasterTransformer via the Triton FasterTransformer Backend~\cite{triton-ft-backend}
+Unlike TurboTransformers, FasterTransformer does not come with a serving framework, but NVIDIA released Triton~\cite{triton}, an open-source inference system that can be coupled with FasterTransformer via the Triton FasterTransformer Backend~\cite{triton-ft-backend}.
 
 \subsubsection{Orca}
 Orca~\cite{orca} is a distributed inference system for transformers, employing optimizations such as dynamic batching and iteration-level scheduling to boost the performance of variable-length requests whose arrival times are not known in advance. Unfortunately, the Orca code is closed-source, and the authors are not planning to make it publicly available as it is being used in production by for-profit company FriendliAI, so we cannot compare the performance with our system. 
 
 \subsection{Speculative decoding systems}
-Two speculative decoding systems~\cite{speculative-decoding-berkeley, speculative-decoding-google} have been introduced in recent months.
+Two speculative decoding systems~\cite{speculative-decoding-berkeley, speculative-decoding-google} have been introduced in recent months. The main difference between these systems and ExpertFlow is that the former ones only support the use of a single \textit{speculator} (i.e. a single small model), which may not align well with the larger target model because of the gap in the number of parameters between the smaller and larger model. On the other hand, ExpertFlow supports the use of a combination of boost-tuned smaller models, which greatly improve the quality of the speculated tokens.
 
 \section{MoE Serving Systems}\label{chpt2-moe-serving}
-There are several distributed inference systems that are capable of serving MoE models. For example, FasterTransformer mentioned above, together with Fairseq~\cite{fairseq} (with additional support for the Tutel~\cite{tutel} optimizations) and Alpa~\cite{alpa}. These systems however, were designed primarily for training and do not have as many optimizations as DeepSpeed-MoE~\cite{deepspeed-moe} for the MoE inference scenario.
+There are several distributed inference systems that are capable of serving MoE models. For example, FasterTransformer mentioned above, together with Fairseq~\cite{fairseq} (with additional support for the Tutel~\cite{tutel} optimizations) and Alpa~\cite{alpa}. These systems, however, were designed primarily for training and do not have as many optimizations as DeepSpeed-MoE~\cite{deepspeed-moe} for the MoE inference scenario.
 
 \subsection{DeepSpeed-MoE}
 DeepSpeed-MoE~\cite{deepspeed-moe} is currently the most well-optimized distributed inference framework with best performance for serving MoE models. The optimizations behind DeepSpeed-MoE's performance can be divided in three categories: the parallelization plan (see Figure \ref{fig:deepspeed-moe-parallelization}), the hierarchical all-to-all communications (see Figure \ref{fig:deepspeed-moe-a2a}), and the use of an efficient kernel for the MoE layers.
@@ -202,10 +202,10 @@ DeepSpeed-MoE~\cite{deepspeed-moe} is currently the most well-optimized distribu
     \caption{\textbf{The DeepSpeed-MoE parallelization mechanism~\cite{deepspeed-moe}}}
     \label{fig:deepspeed-moe-parallelization}
 \end{figure}
-DeepSpeed-MoE's parallelization plan consists of a combination of data and model parallelism. Expert layers are partitioned 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.6\linewidth]{figures/deepspeed-moe-a2a.png}
     \caption{\textbf{The DeepSpeed-MoE Hierarchical all-to-all design~\cite{deepspeed-moe}}}
     \label{fig:deepspeed-moe-a2a}
 \end{figure}
+DeepSpeed-MoE's parallelization plan consists of a combination of data, model and expert parallelism. Figure \ref{fig:deepspeed-moe-parallelization} shows how a GPT-MoE model will be parallelized on a machine with 16 GPUs. In each MoE layer, experts are divided in 8 blocks (\texttt{expert parallel degree = 8}), and the tensor containing the parameters for each expert block is partitioned across 2 GPUs (\texttt{expert slicing degree = 2}). The tensors containing the parameters from the non-MoE layers are split across 4 GPUs (\texttt{tensor slicing degree = 4}), and they are replicated 4 times (\texttt{data parallel degree = 4}).

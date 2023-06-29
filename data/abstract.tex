@@ -3,9 +3,7 @@
 % 中英文摘要和关键字
 
 \begin{abstract}
-  深度学习模型规模的指数级增长导致了混合专家（MoE）结构的再次(受到)关注。MoE利用条件计算来扩展模型大小，并且相应所需的计算数量（FLOPs）呈次线性增长。随着我们进入百亿亿次计算时代，MoE层正在成为深度神经网络（DNN）的关键组成部分，许多研究团队已经投入了大量资源来构建高效的训练系统。许多MoE模型已经发布，包括Switch-C，这是2022年HuggingFace上第一个公开发布的万亿参数模型。
-尽管MoE的训练受到了广泛关注，但对推理的研究较少。在本论文中，我们介绍了一个名为 \Project 的低延迟系统，用于高效提供MoE模型(的高效)服务。该框架支持多GPU和多节点推断，并且是完全异步的。我们在实验中将 \Project 与NVIDIA的FasterTransformer框架进行比较，并发现它的吞吐量高达1.95倍，平均延迟降低了13％。
-我们的目标是使MoE结构更易于使用，并且我们在 \url{https://github.com/flexflow/FlexFlow/tree/inference} 上开源了我们的所有代码。
+  随着深度学习模型规模的指数级增长，稀疏激活的混合专家（MoE）模型架构再次受到了迅速的关注。混合专家模型利用条件计算技术，可以在扩大规模规模的同时，使其训练所需计算量（FLOPs）以次线性的速度增长。随着AI计算进入到百亿亿次时代，MoE层正在逐渐成为深度神经网络（DNNs）的重要组成部分，许多相关研究团队已经投入了大量的资源来建设高效MoE模型训练系统。近期，许多MoE模型被陆续发布，比如Switch-C，这次世界上首个公开发布的万亿参数模型。尽管MoE模型的训练受到了广泛关注，但目前对其推理的研究较少。本研究提出了一个名为 ExpertFlow 的高效低延迟MoE推理系统。该框架支持多GPU和多节点的分布式推理，并且基于纯异步任务调用方式实现。实验表明，相比于英伟达提出的FasterTransformer框架，ExpertFlow可以实现1.95倍的吞吐率，平均延迟可以降低13\%。为了推广MoE模型的使用，我们开源了ExperFlow系统的全部代码：\url{https://github.com/flexflow/FlexFlow/tree/inference}。
 
   % 关键词用“英文逗号”分隔，输出时会自动处理为正确的分隔符
   \thusetup{
@@ -14,14 +12,12 @@
 \end{abstract}
 
 \begin{abstract*}
-  The exponential growth in the size of deep learning models has led to a burgeoning interest in the Mixture of Expert (MoE) architecture. MoE uses conditional computation to scale the model size with a sub-linear growth in the corresponding number of computations (FLOPs) needed to train it. As we enter the exascale computing era, the MoE layer is becoming a key component of deep neural networks (DNNs), and several research teams have dedicated significant resources to building efficient training systems. Many MoE models have been released, including Switch-C, the first open-source trillion-parameters model, which was uploaded to HuggingFace in 2022.
-  
-  Although much attention has been given to MoE training, there has been less research on inference. In this thesis, we present \Project, a low-latency system for efficient serving of MoE models. The framework supports multi-GPU and multi-node inference and is fully asynchronous. We compare \Project to NVIDIA's FasterTransformer framework in our experiments and find that it achieves up to 1.95x higher throughput and up to 13\% lower latency on average.
-  
-  Our goal is to make the MoE architecture more accessible, and we have open-sourced all of our code at \url{https://github.com/flexflow/FlexFlow/tree/inference}.
+  The exponential growth in the size of deep learning models has led to a burgeoning interest in the sparsely activated Mixture of Expert (MoE) model architecture. MoE uses conditional computation to scale the model size with a sub-linear growth in the corresponding number of computations (FLOPs) needed to train it. As AI computation enter the exascale computing era, the MoE layer is becoming a key component of deep neural networks (DNNs), and several research teams have dedicated significant resources to building eﬀicient MoE training systems. Recently, many MoE models have been released, including Switch-C, which is the first open-source trillion-parameters model in the world.
+Although much attention has been given to MoE training, there has been less research on inference. In this thesis, we present ExpertFlow, a low-latency system for eﬀicient inference of MoE models. The framework supports multi-GPU and multi-node distributed inference and is implemented by a fully asynchronous task scheduling manner. We compare ExpertFlow to NVIDIA’s FasterTransformer framework in our experiments and find that it achieves up to 1.95x higher throughput and up to 13\% lower latency on average.
+Our goal is to make the MoE architecture more accessible, and we have open-sourced all of our code at \url{https://github.com/flexflow/FlexFlow/tree/inference}.
 
   % Use comma as separator when inputting
   \thusetup{
-    keywords* = {Mixture of Experts, Transformer, Inference, Distributed System, Asynchronous Tasks},
+    keywords* = {Mixture of Experts; Transformer; Inference; Distributed System; Asynchronous Tasks},
   }
 \end{abstract*}
