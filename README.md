@@ -2,9 +2,11 @@
 
 This repository contains the LaTeX source and PDF of my Tsinghua MS thesis, submitted in May 2023.
 
-For more information, check out the project page [here](https://www.gabrieleoliaro.com/publication/expertflow/)
+You can download the PDF [here](https://www.gabrieleoliaro.com/publication/expertflow/expertflow.pdf).
 
-The code is available [here](https://github.com/flexflow/FlexFlow/tree/inference)
+For more information, check out the project page [here](https://www.gabrieleoliaro.com/publication/expertflow/).
+
+The code is available [here](https://github.com/flexflow/FlexFlow/tree/inference).
 
 ### Citation
 Please cite as:
